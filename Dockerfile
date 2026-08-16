@@ -1,4 +1,4 @@
-FROM python:3.12-slim@sha256:dd29372629eeba2dd003fd9e9d35a5b8236c44727875a0364254b5127af88e65 AS builder
+FROM python:3.14-slim@sha256:ce40764625a4ff50df3548277632e7f96c4e77fe75fa848aae9885476e7df5a4 AS builder
 
 ARG PIP_INDEX_URL=https://pypi.org/simple
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
@@ -20,7 +20,7 @@ RUN pip install pytest pytest-asyncio \
     && cd /src/upstream \
     && pytest -q
 
-FROM python:3.12-slim@sha256:dd29372629eeba2dd003fd9e9d35a5b8236c44727875a0364254b5127af88e65 AS runtime
+FROM python:3.14-slim@sha256:ce40764625a4ff50df3548277632e7f96c4e77fe75fa848aae9885476e7df5a4 AS runtime
 
 ARG TREG_SOURCE_REVISION=unknown
 ARG TREG_PIPELINE_REVISION=unknown
