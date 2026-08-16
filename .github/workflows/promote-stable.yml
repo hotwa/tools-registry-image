@@ -1,0 +1,79 @@
+name: Promote candidate to stable
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_tag:
+        description: Immutable candidate tag, for example candidate-v1-<40-char-upstream-sha>
+        required: true
+        type: string
+
+concurrency:
+  group: treg-stable-promotion
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    environment: production-promotion
+    steps:
+      - name: Check out image pipeline
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Load image name and validate candidate
+        id: meta
+        env:
+          CANDIDATE_TAG: ${{ inputs.candidate_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          source pipeline.env
+          [[ "$CANDIDATE_TAG" =~ ^candidate-v[0-9]+-[0-9a-f]{40}$ ]] || {
+            echo "invalid candidate tag: $CANDIDATE_TAG" >&2
+            exit 2
+          }
+          owner=${GITHUB_REPOSITORY_OWNER,,}
+          image="ghcr.io/$owner/$IMAGE_NAME"
+          printf 'image=%s\n' "$image" >> "$GITHUB_OUTPUT"
+          printf 'candidate=%s:%s\n' "$image" "$CANDIDATE_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Promote the exact candidate manifest
+        id: promote
+        env:
+          IMAGE: ${{ steps.meta.outputs.image }}
+          CANDIDATE: ${{ steps.meta.outputs.candidate }}
+          CANDIDATE_TAG: ${{ inputs.candidate_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          inspection=$(docker buildx imagetools inspect "$CANDIDATE")
+          digest=$(printf '%s\n' "$inspection" | awk '/^Digest:/ {print $2; exit}')
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+            echo 'candidate digest not found' >&2
+            exit 1
+          }
+          immutable_stable="stable-${CANDIDATE_TAG#candidate-}"
+          if docker buildx imagetools inspect "$IMAGE:$immutable_stable" >/dev/null 2>&1; then
+            echo "immutable promotion tag already exists: $immutable_stable" >&2
+            exit 1
+          fi
+          docker buildx imagetools create \
+            --tag "$IMAGE:$immutable_stable" \
+            --tag "$IMAGE:stable" \
+            "$IMAGE@$digest"
+          printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+          printf 'Promoted %s@%s to stable.\n' "$IMAGE" "$digest" >> "$GITHUB_STEP_SUMMARY"

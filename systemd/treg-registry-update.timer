@@ -1,0 +1,11 @@
+[Unit]
+Description=Check for an operator-promoted Treg stable image
+
+[Timer]
+OnCalendar=*-*-* 04:20:00 Asia/Shanghai
+RandomizedDelaySec=20m
+Persistent=true
+Unit=treg-registry-update.service
+
+[Install]
+WantedBy=timers.target
