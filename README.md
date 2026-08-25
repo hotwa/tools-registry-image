@@ -16,14 +16,14 @@ upstream main/tag/SHA
         |
         v
 build-candidate.yml
-  fetch exact SHA -> build test target -> pytest -> runtime image
+  fetch exact SHA -> frozen uv sync -> xdist pytest -> server-only runtime image
         |
         v
-ghcr.io/OWNER/tools-registry:candidate-v1-<40-char-upstream-sha>
+ghcr.io/OWNER/tools-registry:candidate-v2-<40-char-upstream-sha>
         |
         | operator dispatches promote-stable.yml
         v
-ghcr.io/OWNER/tools-registry:stable + immutable stable-v1-<sha>
+ghcr.io/OWNER/tools-registry:stable + immutable stable-v2-<sha>
         |
         | ECS resolves and pins sha256 digest
         v
@@ -66,7 +66,15 @@ this approved GHCR-only path and can be designed later if it becomes necessary.
 
 The immutable candidate tag contains the pipeline epoch and full upstream commit. If build
 semantics change, increment `PIPELINE_EPOCH` in `pipeline.env`. Existing candidate tags are
-never overwritten.
+never overwritten. Epoch `v2` installs from the exact upstream commit's `uv.lock` with
+`uv sync --frozen`; it does not independently resolve the project's broad dependency ranges.
+
+The test target syncs the upstream development group and runs the complete suite with
+`pytest -n auto -q`, matching upstream CI's xdist execution model. The CI-only xdist package,
+its execnet transport, and the `uv` installer are explicitly version-pinned in the Dockerfile. The runtime venv is
+built separately with only the upstream `server` extra (`--no-dev --no-editable`), so pytest,
+xdist, and the source checkout are not copied into the final image. The final process remains
+UID/GID 10001 and starts the installed package from `/opt/venv`.
 
 The workflow pins all third-party Actions to full commit SHAs. It publishes an SBOM,
 BuildKit provenance, and a GitHub artifact attestation. The Python base image is also
@@ -77,14 +85,15 @@ pinned by digest; Dependabot proposes reviewed digest and Action updates weekly.
 After reviewing the candidate workflow and test result:
 
 1. Open **Actions -> Promote candidate to stable -> Run workflow**.
-2. Enter the exact candidate tag shown in the candidate build summary.
+2. Enter the exact candidate tag shown in the candidate build summary. Promotion accepts only
+   the current `PIPELINE_EPOCH`, so an older build cannot silently replace `stable`.
 3. Approve the `production-promotion` environment when protection is configured.
 4. Record the resulting digest from the workflow summary.
 5. For the first releases, run `scripts/deploy-digest.sh --dry-run DIGEST` on ECS and then
    explicitly set `TREG_DEPLOY_CONFIRMED=1` for the real deployment.
 
 Promotion copies the existing manifest. It does not rebuild the image. The moving `stable`
-tag is accompanied by an immutable `stable-v1-<sha>` tag.
+tag is accompanied by an immutable `stable-v2-<sha>` tag.
 
 ## First ECS deployment
 
@@ -154,6 +163,12 @@ revision=$(scripts/fetch-upstream.sh "$UPSTREAM_DEFAULT_REF" upstream)
 docker build --target test \
   --build-arg "TREG_SOURCE_REVISION=$revision" \
   --build-arg "TREG_PIPELINE_REVISION=local" .
+
+docker build --target runtime -t tools-registry-image:local .
+docker run --rm --entrypoint python tools-registry-image:local \
+  -c 'import os, treg; assert os.getuid() == 10001; print(treg.__file__)'
+docker run --rm --entrypoint python tools-registry-image:local \
+  -c 'import importlib.util; assert importlib.util.find_spec("pytest") is None'
 ```
 
 The `upstream/` build context is ignored by Git and must never contain local credentials.
