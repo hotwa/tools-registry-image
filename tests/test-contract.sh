@@ -25,11 +25,33 @@ bash -n scripts/fetch-upstream.sh
 bash -n scripts/deploy-digest.sh
 bash -n scripts/check-stable-and-deploy.sh
 
-grep -qE '^FROM python:3\.12-slim@sha256:[0-9a-f]{64} AS builder$' Dockerfile || fail 'pinned builder stage missing'
-grep -q '^FROM builder AS test$' Dockerfile || fail 'test stage missing'
+grep -qE '^FROM python:3\.12-slim@sha256:[0-9a-f]{64} AS dependencies$' Dockerfile || fail 'pinned dependency stage missing'
+grep -q '^ARG UV_VERSION=[0-9][0-9.]*$' Dockerfile || fail 'uv version pin missing'
+grep -q 'pip install "uv==${UV_VERSION}"' Dockerfile || fail 'pinned uv install missing'
+grep -q '^FROM dependencies AS builder$' Dockerfile || fail 'runtime dependency builder stage missing'
+grep -q 'uv sync --frozen --no-dev --extra server --no-editable' Dockerfile || fail 'frozen runtime dependency sync missing'
+grep -q '^FROM dependencies AS test$' Dockerfile || fail 'test stage missing'
+grep -q '^ARG PYTEST_XDIST_VERSION=[0-9][0-9.]*$' Dockerfile || fail 'pytest-xdist version pin missing'
+grep -q '^ARG EXECNET_VERSION=[0-9][0-9.]*$' Dockerfile || fail 'execnet version pin missing'
 grep -qE '^FROM python:3\.12-slim@sha256:[0-9a-f]{64} AS runtime$' Dockerfile || fail 'pinned runtime stage missing'
 grep -q '^USER 10001:10001$' Dockerfile || fail 'runtime must be non-root'
-grep -q 'pytest -q' Dockerfile || fail 'pytest gate missing'
+grep -q '^COPY --from=builder /opt/venv /opt/venv$' Dockerfile || fail 'runtime venv copy missing'
+
+test_stage=$(sed -n '/^FROM dependencies AS test$/,/^FROM python:.* AS runtime$/p' Dockerfile)
+printf '%s\n' "$test_stage" | grep -q 'uv sync --frozen' || fail 'frozen test dependency sync missing'
+printf '%s\n' "$test_stage" | grep -q -- '--with "pytest-xdist==${PYTEST_XDIST_VERSION}"' || fail 'xdist pytest pin missing'
+printf '%s\n' "$test_stage" | grep -q -- '--with "execnet==${EXECNET_VERSION}"' || fail 'xdist transport pin missing'
+printf '%s\n' "$test_stage" | grep -q 'pytest -n auto -q' || fail 'xdist pytest gate missing'
+
+if sed -n '/^FROM python:.* AS runtime$/,$p' Dockerfile | grep -Eq 'pytest|pytest-xdist|/opt/test-venv'; then
+  fail 'test dependencies leaked into runtime stage'
+fi
+
+grep -q '^PIPELINE_EPOCH=v2$' pipeline.env || fail 'pipeline epoch was not bumped for dependency semantics change'
+grep -q '^          \[\[ "$CANDIDATE_TAG" =~ \^candidate-${PIPELINE_EPOCH}-\[0-9a-f\]{40}\$ \]\]' \
+  .github/workflows/promote-stable.yml || fail 'promotion must require the current pipeline epoch'
+grep -q 'scope=treg-image-test' .github/workflows/build-candidate.yml || fail 'test cache scope missing'
+grep -q 'scope=treg-image-runtime' .github/workflows/build-candidate.yml || fail 'runtime cache scope missing'
 
 if grep -RInE ':latest([^A-Za-z0-9_.-]|$)|docker\.io|index\.docker\.io' \
   Dockerfile pipeline.env .github scripts systemd; then

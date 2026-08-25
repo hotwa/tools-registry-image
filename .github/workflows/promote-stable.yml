@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       candidate_tag:
-        description: Immutable candidate tag, for example candidate-v1-<40-char-upstream-sha>
+        description: Immutable candidate tag, for example candidate-v2-<40-char-upstream-sha>
         required: true
         type: string
 
@@ -32,8 +32,8 @@ jobs:
         run: |
           set -euo pipefail
           source pipeline.env
-          [[ "$CANDIDATE_TAG" =~ ^candidate-v[0-9]+-[0-9a-f]{40}$ ]] || {
-            echo "invalid candidate tag: $CANDIDATE_TAG" >&2
+          [[ "$CANDIDATE_TAG" =~ ^candidate-${PIPELINE_EPOCH}-[0-9a-f]{40}$ ]] || {
+            echo "candidate tag must use the current pipeline epoch ${PIPELINE_EPOCH}" >&2
             exit 2
           }
           owner=${GITHUB_REPOSITORY_OWNER,,}
