@@ -1,3 +1,9 @@
+# Build upstream's browser assets before either Python installation or pytest.
+FROM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS dashboard
+WORKDIR /src/upstream
+COPY upstream/ ./
+RUN bash scripts/build-dashboard.sh
+
 FROM python:3.12-slim@sha256:dd29372629eeba2dd003fd9e9d35a5b8236c44727875a0364254b5127af88e65 AS dependencies
 
 ARG PIP_INDEX_URL=https://pypi.org/simple
@@ -11,6 +17,8 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
 
 WORKDIR /src
 COPY upstream/ ./upstream/
+COPY --from=dashboard /src/upstream/src/treg/web/dashboard/ ./upstream/src/treg/web/dashboard/
+COPY --from=dashboard /src/upstream/src/treg/web/vendor/ ./upstream/src/treg/web/vendor/
 RUN pip install "uv==${UV_VERSION}"
 
 FROM dependencies AS builder
@@ -19,6 +27,10 @@ RUN cd /src/upstream \
     && uv sync --frozen --no-dev --extra server --no-editable
 
 FROM dependencies AS test
+# Upstream catalog tests create temporary Git repositories.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
 ARG PYTEST_XDIST_VERSION=3.8.0
 ARG EXECNET_VERSION=2.1.2
 ENV UV_PROJECT_ENVIRONMENT=/opt/test-venv
