@@ -19,11 +19,11 @@ build-candidate.yml
   fetch exact SHA -> frozen uv sync -> xdist pytest -> server-only runtime image
         |
         v
-ghcr.io/OWNER/tools-registry:candidate-v2-<40-char-upstream-sha>
+ghcr.io/OWNER/tools-registry:candidate-v3-<40-char-upstream-sha>
         |
         | operator dispatches promote-stable.yml
         v
-ghcr.io/OWNER/tools-registry:stable + immutable stable-v2-<sha>
+ghcr.io/OWNER/tools-registry:stable + immutable stable-v3-<sha>
         |
         | ECS resolves and pins sha256 digest
         v
@@ -66,7 +66,9 @@ this approved GHCR-only path and can be designed later if it becomes necessary.
 
 The immutable candidate tag contains the pipeline epoch and full upstream commit. If build
 semantics change, increment `PIPELINE_EPOCH` in `pipeline.env`. Existing candidate tags are
-never overwritten. Epoch `v2` installs from the exact upstream commit's `uv.lock` with
+never overwritten. Epoch `v3` builds the dashboard and Vue runtime with upstream’s locked npm dependencies
+before either Python installation or pytest. Git is installed only in the test stage
+for upstream catalog tests. Like epoch `v2`, it installs from the exact upstream commit's `uv.lock` with
 `uv sync --frozen`; it does not independently resolve the project's broad dependency ranges.
 
 The test target syncs the upstream development group and runs the complete suite with
@@ -93,7 +95,7 @@ After reviewing the candidate workflow and test result:
    explicitly set `TREG_DEPLOY_CONFIRMED=1` for the real deployment.
 
 Promotion copies the existing manifest. It does not rebuild the image. The moving `stable`
-tag is accompanied by an immutable `stable-v2-<sha>` tag.
+tag is accompanied by an immutable `stable-v3-<sha>` tag.
 
 ## First ECS deployment
 
