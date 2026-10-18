@@ -1,5 +1,5 @@
 # Build upstream's browser assets before either Python installation or pytest.
-FROM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS dashboard
+FROM node:26-bookworm-slim@sha256:298992629d69bbd5b2b03ad57094d8e4fcb3a8eeb7c4e25d29de656519568913 AS dashboard
 WORKDIR /src/upstream
 COPY upstream/ ./
 RUN bash scripts/build-dashboard.sh
